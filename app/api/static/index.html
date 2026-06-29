@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Copiloto Estratégico — Terremoto 24J</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root { --azul: #0B3C5D; --acento: #1D6FA3; }
+    body { background: #f3f5f7; }
+    .azul { color: var(--azul); }
+    .bg-azul { background: var(--azul); }
+    .bg-acento { background: var(--acento); }
+    .spinner { border: 3px solid #d9e2ec; border-top-color: var(--acento); border-radius: 50%;
+               width: 24px; height: 24px; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body class="text-slate-700">
+  <header class="bg-azul text-white">
+    <div class="max-w-4xl mx-auto px-4 py-5 flex items-center justify-between flex-wrap gap-2">
+      <div>
+        <h1 class="text-xl md:text-2xl font-bold">Copiloto Estratégico — Terremoto 24J</h1>
+        <p class="text-sm text-blue-100">VenApp / Línea 58 · Comité Nacional de Gestión de Crisis</p>
+      </div>
+      <span class="text-xs bg-red-700 px-2 py-1 rounded font-semibold">CONFIDENCIAL — Uso oficial restringido</span>
+    </div>
+  </header>
+
+  <main class="max-w-4xl mx-auto px-4 py-6">
+    <section class="bg-white rounded-xl shadow p-5 md:p-6">
+      <h2 class="text-lg font-semibold azul mb-4">Generar informe</h2>
+      <form id="form" class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium mb-1">Tipo de informe</label>
+          <select id="tipo" class="w-full border rounded-lg px-3 py-2 bg-white"></select>
+          <p id="tipoDesc" class="text-xs text-slate-500 mt-1"></p>
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">Estado / provincia</label>
+          <select id="estado" class="w-full border rounded-lg px-3 py-2 bg-white">
+            <option value="">Nacional (sin filtro)</option>
+          </select>
+        </div>
+        <div id="umbralesBox" class="hidden border rounded-lg p-3 bg-blue-50/50">
+          <p class="text-sm font-medium azul mb-2">Umbrales de puntos ciegos</p>
+          <div class="grid grid-cols-3 gap-3">
+            <label class="text-xs">MMI mínima
+              <input id="umbral_mmi" type="number" step="0.1" value="6.0" class="w-full border rounded px-2 py-1 mt-1">
+            </label>
+            <label class="text-xs">Habitantes mín.
+              <input id="umbral_habitantes" type="number" step="1000" value="20000" class="w-full border rounded px-2 py-1 mt-1">
+            </label>
+            <label class="text-xs">Cobertura máx.
+              <input id="umbral_cobertura" type="number" step="0.05" value="0.25" class="w-full border rounded px-2 py-1 mt-1">
+            </label>
+          </div>
+          <p class="text-[11px] text-slate-500 mt-2">Zona crítica = MMI ≥ mínima · habitantes ≥ mínimos · cobertura &lt; máxima.</p>
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">Instrucción adicional (opcional)</label>
+          <textarea id="instruccion" rows="2" class="w-full border rounded-lg px-3 py-2"
+            placeholder="Ej: Enfócate en Caracas y compara con México 2017"></textarea>
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">Modelo</label>
+          <select id="modelo" class="w-full border rounded-lg px-3 py-2 bg-white">
+            <option value="claude-sonnet-4-6">Sonnet 4.6 (rápido)</option>
+            <option value="claude-opus-4-8">Opus 4.8 (más exhaustivo)</option>
+          </select>
+        </div>
+        <button id="btn" type="submit"
+          class="w-full bg-acento text-white font-semibold py-2.5 rounded-lg hover:opacity-90 transition">
+          Generar informe
+        </button>
+      </form>
+
+      <div id="loading" class="hidden mt-5 flex items-center gap-3 text-slate-600">
+        <div class="spinner"></div><span id="loadingMsg">Consultando base de datos…</span>
+      </div>
+      <div id="error" class="hidden mt-5 bg-red-50 border border-red-200 text-red-700 rounded-lg p-3 text-sm"></div>
+    </section>
+
+    <section id="result" class="hidden bg-white rounded-xl shadow p-5 md:p-6 mt-6">
+      <h2 class="text-lg font-semibold azul mb-2">Resumen ejecutivo</h2>
+      <p id="resumen" class="text-sm leading-relaxed mb-4"></p>
+      <div id="kpis" class="grid grid-cols-2 md:grid-cols-3 gap-3 mb-4"></div>
+      <div class="flex gap-4 text-sm text-slate-600 mb-4">
+        <span>⚠️ Riesgos: <b id="nRiesgos">0</b></span>
+        <span>✅ Recomendaciones: <b id="nRecs">0</b></span>
+      </div>
+      <a id="download" href="#" class="inline-block bg-azul text-white font-semibold px-5 py-3 rounded-lg hover:opacity-90">
+        ⬇️ Descargar Word
+      </a>
+    </section>
+
+    <section id="historial" class="hidden mt-6">
+      <h3 class="text-sm font-semibold text-slate-500 mb-2">Informes de esta sesión</h3>
+      <ul id="histList" class="space-y-1 text-sm"></ul>
+    </section>
+  </main>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    let TIPOS = {};
+    const historial = [];
+
+    async function init() {
+      try {
+        const r = await fetch('/api/tipos-reporte');
+        const data = await r.json();
+        TIPOS = data.tipos || {};
+        for (const [clave, info] of Object.entries(TIPOS)) {
+          const o = document.createElement('option');
+          o.value = clave; o.textContent = info.label;
+          $('tipo').appendChild(o);
+        }
+        for (const e of (data.estados || [])) {
+          const o = document.createElement('option');
+          o.value = e; o.textContent = e;
+          $('estado').appendChild(o);
+        }
+        updateDesc();
+      } catch (e) {
+        showError('No se pudo cargar la configuración inicial: ' + e.message);
+      }
+    }
+
+    function updateDesc() {
+      const clave = $('tipo').value;
+      const t = TIPOS[clave];
+      $('tipoDesc').textContent = t ? t.descripcion : '';
+      $('umbralesBox').classList.toggle('hidden', clave !== 'puntos_ciegos');
+    }
+    $('tipo').addEventListener('change', updateDesc);
+
+    function showError(msg) {
+      $('error').textContent = msg;
+      $('error').classList.remove('hidden');
+    }
+
+    const mensajes = ['Consultando base de datos…','Analizando riesgos…','Buscando casos análogos…',
+                      'Consultando protocolos internacionales…','Redactando informe…'];
+    let msgTimer = null, msgIdx = 0;
+    function startLoading() {
+      $('loading').classList.remove('hidden');
+      msgIdx = 0; $('loadingMsg').textContent = mensajes[0];
+      msgTimer = setInterval(() => { msgIdx = (msgIdx + 1) % mensajes.length; $('loadingMsg').textContent = mensajes[msgIdx]; }, 4000);
+    }
+    function stopLoading() { $('loading').classList.add('hidden'); clearInterval(msgTimer); }
+
+    $('form').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      $('error').classList.add('hidden');
+      $('result').classList.add('hidden');
+      $('btn').disabled = true; $('btn').classList.add('opacity-50');
+      startLoading();
+      try {
+        let instruccion = $('instruccion').value;
+        if ($('tipo').value === 'puntos_ciegos') {
+          instruccion = `Usa estos umbrales al llamar consultar_zonas_silenciosas: `
+            + `umbral_mmi=${$('umbral_mmi').value}, umbral_habitantes=${$('umbral_habitantes').value}, `
+            + `umbral_cobertura=${$('umbral_cobertura').value}. ` + instruccion;
+        }
+        const body = {
+          tipo: $('tipo').value,
+          estado: $('estado').value || null,
+          instruccion_adicional: instruccion,
+          modelo: $('modelo').value,
+        };
+        const r = await fetch('/api/reportes', {
+          method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body),
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          throw new Error(err.detail || ('HTTP ' + r.status));
+        }
+        const data = await r.json();
+        renderResult(data);
+      } catch (e) {
+        showError('Error al generar el informe: ' + e.message);
+      } finally {
+        stopLoading();
+        $('btn').disabled = false; $('btn').classList.remove('opacity-50');
+      }
+    });
+
+    function renderResult(data) {
+      $('resumen').textContent = data.resumen_ejecutivo || '(sin resumen)';
+      $('nRiesgos').textContent = data.n_riesgos ?? 0;
+      $('nRecs').textContent = data.n_recomendaciones ?? 0;
+      const cont = $('kpis'); cont.innerHTML = '';
+      for (const k of (data.kpis || [])) {
+        const div = document.createElement('div');
+        div.className = 'border rounded-lg p-3 bg-slate-50';
+        div.innerHTML = `<div class="text-xs text-slate-500">${k.label || ''}</div>
+          <div class="text-lg font-bold azul">${k.valor || ''}</div>
+          ${k.nota ? `<div class="text-[11px] text-slate-400">${k.nota}</div>` : ''}`;
+        cont.appendChild(div);
+      }
+      $('download').href = data.download_url;
+      $('result').classList.remove('hidden');
+
+      historial.unshift({ id: data.report_id, url: data.download_url });
+      renderHistorial();
+    }
+
+    function renderHistorial() {
+      if (!historial.length) return;
+      $('historial').classList.remove('hidden');
+      $('histList').innerHTML = '';
+      for (const h of historial) {
+        const li = document.createElement('li');
+        li.innerHTML = `<a class="text-blue-700 underline" href="${h.url}">${h.id}.docx</a>`;
+        $('histList').appendChild(li);
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>

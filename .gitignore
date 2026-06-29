@@ -1,0 +1,35 @@
+# Secretos y credenciales — NUNCA versionar
+.env
+.env.*
+!.env.example
+*.pem
+mongo_ssl_*/
+
+# Datos reales con PII — NUNCA versionar (export de VenApp / hoja "Línea 58")
+*.xlsx
+*.xls
+report_*.xlsx
+# Exports de reportes con PII (cédula/teléfono/email). Los CSV de referencia en
+# data_seed/ y prompts/ tienen otros nombres y NO quedan excluidos.
+report_*.csv
+terremoto*.csv
+
+# Salidas generadas
+reports_out/
+*.docx
+
+# Herramientas locales
+.qodo/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# SO / editores
+.DS_Store
+# Archivos de bloqueo de LibreOffice/OpenOffice (al abrir hojas de cálculo)
+.~lock.*#
+*.swp
+*~
