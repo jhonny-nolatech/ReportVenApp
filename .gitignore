@@ -17,6 +17,9 @@ terremoto*.csv
 # Salidas generadas
 reports_out/
 *.docx
+# Caché de clasificación por IA (derivado del export con PII)
+cache_clasificacion_edificios.json
+_base_contexto.json
 
 # Herramientas locales
 .qodo/

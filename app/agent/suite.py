@@ -222,9 +222,12 @@ _TITULOS_GRAFICOS = {
     "servicios": "Incidencias en servicios por sector",
     "electricidad": "Daño eléctrico por tipo",
     "salud": "Reportes en salud, escuelas y edificios públicos",
-    "desplazados_estado": "Desplazados estimados por estado (daño estructural × hogar)",
-    "escenarios": "Escenarios de población desplazada: cota media vs. máxima demanda",
-    "cisternas_estado": "Camiones cisterna requeridos por estado (horizonte de planificación)",
+    "desplazados_estado": "Desplazados estimados por estado — corregido (edificios en zonas de colapso vertical)",
+    "escenarios": "Población desplazada: proxy por reportes (sesgado) vs. corregido por edificios",
+    "cisternas_estado": "Camiones cisterna requeridos por estado (estimación corregida)",
+    "riesgo_estado": "Edificios en riesgo de colapso por estado (prioridad de evacuación preventiva)",
+    "composicion": "Composición de los reportes de daño (derrumbado / en riesgo / vivienda / otros)",
+    "sesgo_la_guaira": "Sesgo corregido: reportes reasignados a La Guaira según su estado declarado",
 }
 
 
@@ -295,16 +298,18 @@ def _inyectar_graficos_albergues(md: str, outdir: str, estado: str | None) -> st
         return md
 
     lines = md.split("\n")
-    # Desplazados por estado + escenarios → sección "Población desplazada estimada".
-    demanda = {k: rutas[k] for k in ("desplazados_estado", "escenarios") if k in rutas}
+    # Población desplazada (§2): desplazados + escenarios + composición + sesgo.
+    demanda = {k: rutas[k] for k in ("desplazados_estado", "escenarios", "composicion", "sesgo_la_guaira")
+               if k in rutas}
     if demanda:
         bloque = "\n" + _bloque_imgs(demanda) + "\n"
         if not (_insertar_tras_encabezado(lines, bloque, ("desplaz",))
                 or _insertar_tras_encabezado(lines, bloque, ("resumen ejecutivo", "resumen"))):
             lines.append(bloque)
-    # Camiones cisterna por estado → sección "Priorización territorial / despliegue".
-    if "cisternas_estado" in rutas:
-        bloque = "\n" + _bloque_imgs({"cisternas_estado": rutas["cisternas_estado"]}) + "\n"
+    # Priorización / despliegue (§6): cisternas + edificios en riesgo (evacuación preventiva).
+    despliegue = {k: rutas[k] for k in ("cisternas_estado", "riesgo_estado") if k in rutas}
+    if despliegue:
+        bloque = "\n" + _bloque_imgs(despliegue) + "\n"
         if not _insertar_tras_encabezado(lines, bloque, ("prioriz", "territorial", "despliegue")):
             lines.append(bloque)
     return "\n".join(lines)

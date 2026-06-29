@@ -28,10 +28,24 @@ cuántas personas), pensando "desde cero" (enfoque de campamento de emergencia).
 urgencia (réplicas activas, gente a la intemperie) y qué decide este documento.
 
 ### 2. Población desplazada estimada
-Explica el método (1 hogar reportante ≈ 4 personas) y presenta los dos escenarios
-(cota media = daño estructural; cota alta = todos los reportes) en una tabla.
-Incluye la tabla de **desplazados estimados por estado** del contexto y señala los
-estados que concentran la demanda (prioridad de despliegue).
+ADVERTENCIA DE SESGO (obligatoria): el conteo de reportes está sesgado por la
+densidad de reporte (Caracas reporta mucho más que La Guaira), así que
+"reportes × hogar" NO mide el desplazamiento real y subestima el colapso vertical.
+Explica esto explícitamente. Presenta:
+- El proxy por reportes SOLO como indicador de actividad (con la advertencia).
+- La estimación por **edificios** para zonas de colapso vertical (tabla "Desplazados
+  por colapso vertical" del contexto), señalando que es **PRELIMINAR** hasta
+  confirmación oficial.
+- La tabla **"Desplazados estimados por estado — CORREGIDO"** del contexto, que es la
+  que debe usarse para priorizar: deja claro que **La Guaira concentra la mayor
+  demanda real**, no Caracas.
+- La tabla **"Total a reubicar y próximos a reubicar"**: distingue **A REUBICAR AHORA**
+  (edificaciones derrumbadas) de **PRÓXIMOS A REUBICAR** (en riesgo de colapso). Plantea
+  la lectura operativa: **La Guaira = reubicación inmediata** (más derrumbes) y
+  **Caracas = evacuación preventiva** (concentra los edificios en riesgo).
+- La sección **"Sesgo de reporte cuantificado"**: menciona cuántos reportes se
+  denunciaron desde un estado distinto al real y que la mayoría se reasignaron a La
+  Guaira — esto sustenta por qué corregimos el método.
 
 ### 3. Tipología de campamentos
 Propón 3–4 tipos de campamento según tamaño/contexto (p. ej. micro-albergue urbano

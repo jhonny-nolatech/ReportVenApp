@@ -207,22 +207,37 @@ def graficos_albergues(datos: dict, outdir: str = "reports_out",
     de demanda y camiones cisterna por estado. Devuelve {nombre: ruta_png}."""
     rutas: dict = {}
     datos = datos or {}
-    fuente = fuente or "Fuente: estimación VenApp (reportes × hogar) · estándares Esfera/ACNUR/PMA."
+    fuente = fuente or ("Fuente: estimación corregida VenApp (edificios en zonas de colapso vertical; "
+                        "reportes × hogar en el resto). Cifras de edificios PRELIMINARES.")
     dias = datos.get("dias", 14)
 
     if datos.get("desplazados_estado"):
         rutas["desplazados_estado"] = grafico_barras(
-            datos["desplazados_estado"], "Desplazados estimados por estado",
+            datos["desplazados_estado"], "Desplazados por estado (corregido por edificios)",
             os.path.join(outdir, "alb_desplazados_estado.png"), color=ROJO, fuente=fuente)
     if datos.get("escenarios"):
         rutas["escenarios"] = grafico_barras(
-            datos["escenarios"], "Escenarios de población desplazada",
+            datos["escenarios"], "Población desplazada: proxy por reportes vs. corregido",
             os.path.join(outdir, "alb_escenarios.png"), color=AZUL2, fuente=fuente)
     if datos.get("cisternas_estado"):
         rutas["cisternas_estado"] = grafico_barras(
             datos["cisternas_estado"],
             f"Camiones cisterna (10.000 L) en {dias} días por estado",
             os.path.join(outdir, "alb_cisternas.png"), color=TEAL, fuente=fuente)
+    if datos.get("riesgo_estado"):
+        rutas["riesgo_estado"] = grafico_barras(
+            datos["riesgo_estado"], "Edificios en riesgo de colapso por estado (evacuación preventiva)",
+            os.path.join(outdir, "alb_riesgo_estado.png"), color=NARANJA, fuente=fuente)
+    if datos.get("composicion"):
+        rutas["composicion"] = grafico_torta(
+            datos["composicion"], "Composición de los reportes de daño",
+            os.path.join(outdir, "alb_composicion.png"),
+            colores=[ROJO, NARANJA, AZUL2, GRIS], fuente=fuente)
+    if datos.get("sesgo_la_guaira"):
+        rutas["sesgo_la_guaira"] = grafico_barras(
+            datos["sesgo_la_guaira"],
+            "Reportes reasignados a La Guaira (estado declarado de origen)",
+            os.path.join(outdir, "alb_sesgo.png"), color=AZUL, fuente=fuente)
     return rutas
 
 
