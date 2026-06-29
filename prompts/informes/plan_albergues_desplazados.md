@@ -27,25 +27,21 @@ cuántas personas), pensando "desde cero" (enfoque de campamento de emergencia).
 3–5 frases: magnitud del desplazamiento estimado (cota media y cota alta), la
 urgencia (réplicas activas, gente a la intemperie) y qué decide este documento.
 
-### 2. Población desplazada estimada
-ADVERTENCIA DE SESGO (obligatoria): el conteo de reportes está sesgado por la
-densidad de reporte (Caracas reporta mucho más que La Guaira), así que
-"reportes × hogar" NO mide el desplazamiento real y subestima el colapso vertical.
-Explica esto explícitamente. Presenta:
-- El proxy por reportes SOLO como indicador de actividad (con la advertencia).
-- La estimación por **edificios** para zonas de colapso vertical (tabla "Desplazados
-  por colapso vertical" del contexto), señalando que es **PRELIMINAR** hasta
-  confirmación oficial.
-- La tabla **"Desplazados estimados por estado — CORREGIDO"** del contexto, que es la
-  que debe usarse para priorizar: deja claro que **La Guaira concentra la mayor
-  demanda real**, no Caracas.
-- La tabla **"Total a reubicar y próximos a reubicar"**: distingue **A REUBICAR AHORA**
-  (edificaciones derrumbadas) de **PRÓXIMOS A REUBICAR** (en riesgo de colapso). Plantea
-  la lectura operativa: **La Guaira = reubicación inmediata** (más derrumbes) y
-  **Caracas = evacuación preventiva** (concentra los edificios en riesgo).
-- La sección **"Sesgo de reporte cuantificado"**: menciona cuántos reportes se
-  denunciaron desde un estado distinto al real y que la mayoría se reasignaron a La
-  Guaira — esto sustenta por qué corregimos el método.
+### 2. Población a reubicar (con intervalo de confianza)
+Presenta la población a reubicar como un **INTERVALO** (de cuánto a cuánto), no como
+un número único, para que el comité pueda **estar preparado** para la cota alta. Usa
+EXACTAMENTE las cifras del contexto:
+- **Personas a reubicar ahora** (edificaciones derrumbadas): el rango bajo–alto, con
+  la estimación central. Indica que para planificar se dimensiona con la **cota alta**.
+- **Próximas a reubicar** (edificaciones en riesgo de colapso): el rango bajo–alto.
+- Incluye la **"Comparación con el cálculo anterior"** del contexto, EN FORMA DE
+  CÁLCULO: de cuánto tenía el cálculo anterior a cuánto da el intervalo actual, y por
+  qué (apartamentos por edificio realistas + edificaciones deduplicadas).
+- Incluye la tabla **"Personas a reubicar por estado"** y la lectura operativa:
+  **La Guaira = reubicación inmediata** (más derrumbes); **Caracas = evacuación
+  preventiva** (concentra las edificaciones en riesgo).
+NO incluyas discusión de "sesgo" ni de método por reportes: presenta directamente las
+cifras de edificaciones afectadas como la base del cálculo.
 
 ### 3. Tipología de campamentos
 Propón 3–4 tipos de campamento según tamaño/contexto (p. ej. micro-albergue urbano

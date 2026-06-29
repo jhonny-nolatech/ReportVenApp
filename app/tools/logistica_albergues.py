@@ -48,10 +48,15 @@ EDIFICIOS_VERTICALES_AFECTADOS: dict[str, dict] = {
     },
     # "Caracas": {"edificios": ..., "aptos_promedio": ..., "personas_hogar": 6, "fuente": "..."},
 }
-# Supuestos (NO están en el CSV) usados cuando los EDIFICIOS los cuenta la IA por
-# estado real: apartamentos promedio por edificio y personas por hogar. Confirmables.
-APTOS_PROMEDIO_DEFAULT = 100
-PERSONAS_HOGAR_VERTICAL = 6
+# Intervalo de confianza de apartamentos por edificio (los edificios los cuenta la
+# IA; el nº de apartamentos NO está en los datos, así que se da un RANGO para estar
+# preparados). Edificios residenciales venezolanos: típicamente 15–40 aptos.
+APTOS_BAJO = 15
+APTOS_CENTRAL = 25
+APTOS_ALTO = 40
+APTOS_PROMEDIO_DEFAULT = APTOS_CENTRAL  # central del intervalo (usado por gráficas/tablas)
+APTOS_ANTERIOR = 100                    # supuesto del cálculo previo (para comparar)
+PERSONAS_HOGAR_VERTICAL = 6             # personas por hogar (vertical)
 
 
 def _ceil(x: float) -> int:
@@ -237,14 +242,17 @@ def datos_para_graficos(estado: str | None = None, dias: int = HORIZONTE_DIAS,
     desplazados = {r["estado"]: r["desplazados_est"] for r in corregido if r["desplazados_est"]}
     cisternas = {r["estado"]: _ceil(r["desplazados_est"] * 15 * dias / CISTERNA_L)
                  for r in corregido if r["desplazados_est"]}
-    est = estimacion_desplazados(**f)
-    total_corregido = sum(r["desplazados_est"] for r in desplazados_corregido_por_estado(**f))
-    escenarios = {
-        "Proxy reportes × hogar (sesgado)": est["escenarios"]["cota_media_dano_estructural"],
-        "Corregido por edificios": total_corregido,
-    }
-    datos = {"desplazados_estado": desplazados, "escenarios": escenarios,
-             "cisternas_estado": cisternas, "dias": dias}
+    datos = {"desplazados_estado": desplazados, "cisternas_estado": cisternas, "dias": dias}
+
+    # Intervalo de confianza (bajo/central/alto) de personas a reubicar.
+    inter = intervalo_reubicar()
+    if inter:
+        ap = inter["aptos"]
+        datos["intervalo"] = {
+            f"Bajo ({ap['bajo']} aptos)": inter["reubicar"]["bajo"],
+            f"Central ({ap['central']})": inter["reubicar"]["central"],
+            f"Alto ({ap['alto']})": inter["reubicar"]["alto"],
+        }
 
     # Series adicionales desde la clasificación por IA (si está disponible).
     try:
@@ -258,17 +266,32 @@ def datos_para_graficos(estado: str | None = None, dias: int = HORIZONTE_DIAS,
             comp = ce.composicion()
             if comp:
                 datos["composicion"] = comp
-            sesgo = ce.flujos_sesgo()
-            hacia_lg = {}
-            for fl in sesgo["flujos"]:
-                decl, _, real = fl["flujo"].partition(" → ")
-                if real.strip() == "La Guaira":
-                    hacia_lg[decl.strip()] = fl["conteo"]
-            if hacia_lg:
-                datos["sesgo_la_guaira"] = hacia_lg
     except Exception:  # noqa: BLE001
         pass
     return datos
+
+
+def intervalo_reubicar() -> dict | None:
+    """Intervalo (bajo/central/alto) de personas a REUBICAR y PRÓXIMAS a reubicar,
+    variando los apartamentos por edificio. Incluye el cálculo ANTERIOR (100 aptos)
+    para comparar. None si no hay clasificación IA disponible."""
+    try:
+        from app.tools import clasificador_edificios as ce
+        if not ce.disponible():
+            return None
+
+        def tot(ap):
+            r = ce.resumen(aptos_promedio=ap, personas_hogar=PERSONAS_HOGAR_VERTICAL)
+            return r["total_a_reubicar"], r["total_proximos_reubicar"]
+
+        b, c, a, ant = tot(APTOS_BAJO), tot(APTOS_CENTRAL), tot(APTOS_ALTO), tot(APTOS_ANTERIOR)
+    except Exception:  # noqa: BLE001
+        return None
+    return {
+        "reubicar": {"bajo": b[0], "central": c[0], "alto": a[0], "anterior": ant[0]},
+        "proximos": {"bajo": b[1], "central": c[1], "alto": a[1], "anterior": ant[1]},
+        "aptos": {"bajo": APTOS_BAJO, "central": APTOS_CENTRAL, "alto": APTOS_ALTO, "anterior": APTOS_ANTERIOR},
+    }
 
 
 def zonas_prioritarias_albergues(top: int = 10) -> list[dict]:
@@ -304,116 +327,78 @@ def tabla_proyeccion_md(personas: int, dias: int = HORIZONTE_DIAS) -> str:
 
 
 def bloque_contexto_md(estado: str | None = None, dias: int = HORIZONTE_DIAS) -> str:
-    """Bloque completo para el CONTEXTO del informe de albergues: estimación de
-    desplazados + proyecciones por tamaño + necesidades agregadas. Cifras exactas
-    (deterministas) para que el documento no las invente."""
-    est = estimacion_desplazados(**({"province": estado} if estado else {}))
-    pph = est["personas_por_hogar"]
-    media = est["escenarios"]["cota_media_dano_estructural"]
-    alta = est["escenarios"]["cota_alta_todos_los_reportes"]
-
+    """Bloque para el CONTEXTO del informe de albergues: población a reubicar como
+    INTERVALO, comparación con el cálculo anterior, desglose por estado, proyecciones
+    por tamaño y necesidades agregadas. Cifras deterministas."""
     partes = ["## Logística de albergues — proyecciones DETERMINISTAS (usa estas cifras exactas)"]
 
-    # AVISO DE SESGO (clave): el conteo de reportes NO mide desplazamiento real.
-    partes.append(
-        "### ⚠️ Nota metodológica obligatoria (sesgo de reporte)\n"
-        "El conteo de reportes está SESGADO por la densidad de reporte: Caracas reporta "
-        "mucho más que La Guaira, así que 'reportes × hogar' SOBRE-representa a las zonas "
-        "que más usan la app y SUBESTIMA el COLAPSO VERTICAL (edificios enteros que caen y "
-        "desplazan a cientos de personas con muy pocos reportes). Por eso la cifra real de "
-        "desplazados se concentra en La Guaira, no en Caracas. En el documento: (1) presenta "
-        "el conteo por reportes SOLO como proxy de actividad, con esta advertencia explícita; "
-        "(2) usa la estimación CORREGIDA por edificios para priorizar; (3) deja claro que las "
-        "cifras por edificios son PRELIMINARES hasta confirmación oficial."
-    )
+    inter = intervalo_reubicar()
+    ia = desplazados_por_clasificacion()  # estimación central (APTOS_PROMEDIO_DEFAULT)
 
-    partes.append(
-        "### Población desplazada estimada\n"
-        f"- Supuesto base: 1 hogar reportante ≈ {pph} personas (zonas de colapso vertical usan 6).\n"
-        f"- Reportes del evento: {_fmt(est['reportes_totales'])}; con daño estructural: {_fmt(est['reportes_dano_estructural'])}.\n"
-        f"- **Proxy por reportes (SESGADO)**: daño estructural × {pph} = {_fmt(media)} personas (cota alta {_fmt(alta)}). NO usar como ranking real.\n"
-        "- **Estimación corregida**: ver tabla por estado más abajo (usa edificios en zonas de colapso vertical)."
-    )
-
-    # Estimación por edificios (corrección del sesgo)
-    edif = desplazados_por_edificios()
-    if edif:
-        tabla = ["### Desplazados por colapso vertical (estimación por EDIFICIOS — PRELIMINAR)",
-                 "| Estado | Cálculo | Desplazados estimados | Fuente |", "|---|---|---|---|"]
-        for r in edif:
-            tabla.append(f"| {r['estado']} | {r['detalle']} | {_fmt(r['desplazados_est'])} | {r['fuente']} |")
-        partes.append("\n".join(tabla))
-
-    # Total a reubicar / próximos a reubicar — clasificación POR IA (estado real)
-    ia = desplazados_por_clasificacion()
-    if ia:
+    if inter and ia:
         try:
             from app.tools import clasificador_edificios as ce
-            res = ce.resumen(aptos_promedio=APTOS_PROMEDIO_DEFAULT, personas_hogar=PERSONAS_HOGAR_VERTICAL)
+            res = ce.resumen(aptos_promedio=APTOS_CENTRAL, personas_hogar=PERSONAS_HOGAR_VERTICAL)
         except Exception:  # noqa: BLE001
             res = None
-        tot_reub = sum(r["desplazados_est"] for r in ia)
-        tot_prox = sum(r["proximos_reubicar"] for r in ia)
-        cab = ["### Total a reubicar y próximos a reubicar (clasificación IA por estado REAL)",
-               f"- **Personas a REUBICAR ahora** (edificaciones derrumbadas): **{_fmt(tot_reub)}**.",
-               f"- **Próximas a reubicar** (edificaciones en riesgo de colapso): **{_fmt(tot_prox)}**.",
-               f"- Supuestos: {APTOS_PROMEDIO_DEFAULT} aptos/edificio × {PERSONAS_HOGAR_VERTICAL} pers/hogar; "
-               "viviendas unifamiliares = 1 hogar (confirmables)."]
-        if res:
-            cab.append(f"- Composición del 'a reubicar': {_fmt(res['total_edificios_derrumbados'])} edificios + "
-                       f"{_fmt(res['total_viviendas_derrumbadas'])} viviendas derrumbadas (distintas).")
-        cab.append(
-            "- LECTURA OPERATIVA: **La Guaira = reubicación inmediata** (más derrumbes); "
-            "**Caracas = evacuación preventiva** (concentra los edificios EN RIESGO).")
-        tabla = cab + ["",
-                       "| Estado | Edif. derrumbados | A reubicar | Edif. en riesgo | Próximos a reubicar |",
-                       "|---|---|---|---|---|"]
-        for r in ia[:15]:
-            tabla.append(f"| {r['estado']} | {r['edificios_derrumbados']} | {_fmt(r['desplazados_est'])} | "
-                         f"{r['edificios_riesgo']} | {_fmt(r['proximos_reubicar'])} |")
-        partes.append("\n".join(tabla))
+        r, p, ap = inter["reubicar"], inter["proximos"], inter["aptos"]
+        comp_edif = (f"{_fmt(res['total_edificios_derrumbados'])} edificios + "
+                     f"{_fmt(res['total_viviendas_derrumbadas'])} viviendas derrumbadas (distintas)."
+                     if res else "")
+        partes.append("\n".join([
+            "### Población a reubicar — intervalo de planificación",
+            f"- Edificaciones afectadas identificadas y deduplicadas (IA, leyendo cada reporte): {comp_edif}",
+            f"- **Personas a REUBICAR ahora (edificaciones derrumbadas): {_fmt(r['bajo'])} – {_fmt(r['alto'])}** "
+            f"(estimación central {_fmt(r['central'])}).",
+            f"- **Próximas a reubicar (edificaciones en riesgo): {_fmt(p['bajo'])} – {_fmt(p['alto'])}** "
+            f"(central {_fmt(p['central'])}).",
+            f"- Intervalo según apartamentos por edificio ({ap['bajo']}–{ap['alto']}, central {ap['central']}) × "
+            f"{PERSONAS_HOGAR_VERTICAL} personas/hogar; viviendas unifamiliares = 1 hogar.",
+            "- Para planificar y ESTAR PREPARADOS, dimensionar con la COTA ALTA del intervalo.",
+            "- Lectura operativa: La Guaira = reubicación inmediata (más derrumbes); Caracas = evacuación "
+            "preventiva (concentra las edificaciones en riesgo).",
+        ]))
 
-        # Sesgo cuantificado: estado declarado ≠ estado real
-        try:
-            from app.tools import clasificador_edificios as ce
-            sesgo = ce.flujos_sesgo()
-        except Exception:  # noqa: BLE001
-            sesgo = None
-        if sesgo and sesgo["reclasificados"]:
-            ts = [f"### Sesgo de reporte cuantificado (estado declarado ≠ estado real)",
-                  f"- {_fmt(sesgo['reclasificados'])} reportes ({sesgo['pct']}%) se declararon en un estado "
-                  "distinto al del hecho real (inferido del texto).",
-                  "- La gran mayoría se reasignaron HACIA La Guaira, confirmando que estaba "
-                  "sub-representada por la densidad de reporte.",
-                  "",
-                  "| Reasignación (declarado → real) | Reportes |", "|---|---|"]
-            for fl in sesgo["flujos"][:10]:
-                ts.append(f"| {fl['flujo']} | {fl['conteo']} |")
-            partes.append("\n".join(ts))
+        partes.append(
+            "### Comparación con el cálculo anterior (en forma de cálculo)\n"
+            f"- Cálculo anterior: edificaciones × {ap['anterior']} aptos × {PERSONAS_HOGAR_VERTICAL} pers ≈ "
+            f"**{_fmt(r['anterior'])} personas** (estimación puntual; suponía {ap['anterior']} apartamentos por edificio).\n"
+            f"- Cálculo actual: edificaciones deduplicadas × {ap['bajo']}–{ap['alto']} aptos × {PERSONAS_HOGAR_VERTICAL} pers = "
+            f"**{_fmt(r['bajo'])} – {_fmt(r['alto'])} personas** (intervalo de confianza).\n"
+            f"- El intervalo refina el cálculo anterior: apartamentos por edificio realistas ({ap['bajo']}–{ap['alto']} "
+            f"en vez de {ap['anterior']}) y edificaciones deduplicadas (sin contar el mismo edificio varias veces)."
+        )
 
-    # Desglose CORREGIDO por estado (top 12) — el que se debe usar para priorizar
-    corregido = [r for r in desplazados_corregido_por_estado() if r["estado"] != "Sin dato"][:12]
-    if corregido:
-        tabla = ["### Desplazados estimados por estado — CORREGIDO (usar este para priorizar)",
-                 "| Estado | Desplazados estimados | Método | Detalle |", "|---|---|---|---|"]
-        for r in corregido:
-            tabla.append(f"| {r['estado']} | {_fmt(r['desplazados_est'])} | {r['metodo']} | {r['detalle']} |")
+        tabla = ["### Personas a reubicar por estado (estimación central)",
+                 "| Estado | Edif. derrumbados | A reubicar | Edif. en riesgo | Próximos a reubicar |",
+                 "|---|---|---|---|---|"]
+        for row in ia[:15]:
+            tabla.append(f"| {row['estado']} | {row['edificios_derrumbados']} | {_fmt(row['desplazados_est'])} | "
+                         f"{row['edificios_riesgo']} | {_fmt(row['proximos_reubicar'])} |")
         partes.append("\n".join(tabla))
+        total_central, total_alto = r["central"], r["alto"]
+    else:
+        # Fallback (sin clasificación IA): estimación por reportes.
+        est = estimacion_desplazados(**({"province": estado} if estado else {}))
+        total_central = est["escenarios"]["cota_media_dano_estructural"]
+        total_alto = est["escenarios"]["cota_alta_todos_los_reportes"]
+        partes.append(
+            "### Población a reubicar (estimación por reportes — sin clasificación IA disponible)\n"
+            f"- Estimación: {_fmt(total_central)} – {_fmt(total_alto)} personas."
+        )
 
     # Proyecciones por tamaño de campamento de referencia
     partes.append("### Proyección de suministros por tamaño de campamento")
     for n in TAMANOS_REFERENCIA:
         partes.append(tabla_proyeccion_md(n, dias))
 
-    # Necesidades agregadas. Primario: total CORREGIDO (PRELIMINAR, domina La Guaira
-    # por edificios). Secundario: proxy por reportes como piso conservador.
-    total_corregido = sum(r["desplazados_est"] for r in desplazados_corregido_por_estado())
-    if total_corregido:
-        partes.append(f"### Necesidades agregadas — estimación CORREGIDA ({_fmt(total_corregido)} personas, PRELIMINAR)")
-        partes.append(tabla_proyeccion_md(total_corregido, dias))
-    if media:
-        partes.append(f"### Necesidades agregadas — piso conservador por reportes ({_fmt(media)} personas)")
-        partes.append(tabla_proyeccion_md(media, dias))
+    # Necesidades agregadas: estimación central + cota alta (para estar preparados).
+    if total_central:
+        partes.append(f"### Necesidades agregadas — estimación central ({_fmt(total_central)} personas)")
+        partes.append(tabla_proyeccion_md(total_central, dias))
+    if total_alto and total_alto != total_central:
+        partes.append(f"### Necesidades agregadas — para ESTAR PREPARADOS / cota alta ({_fmt(total_alto)} personas)")
+        partes.append(tabla_proyeccion_md(total_alto, dias))
 
     # Zonas prioritarias para instalar albergues (IPCT)
     zonas = zonas_prioritarias_albergues(top=10)

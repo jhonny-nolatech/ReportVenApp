@@ -207,18 +207,18 @@ def graficos_albergues(datos: dict, outdir: str = "reports_out",
     de demanda y camiones cisterna por estado. Devuelve {nombre: ruta_png}."""
     rutas: dict = {}
     datos = datos or {}
-    fuente = fuente or ("Fuente: estimación corregida VenApp (edificios en zonas de colapso vertical; "
-                        "reportes × hogar en el resto). Cifras de edificios PRELIMINARES.")
+    fuente = fuente or ("Fuente: edificaciones afectadas identificadas por IA y deduplicadas · "
+                        "estándares Esfera/ACNUR/PMA.")
     dias = datos.get("dias", 14)
 
     if datos.get("desplazados_estado"):
         rutas["desplazados_estado"] = grafico_barras(
-            datos["desplazados_estado"], "Desplazados por estado (corregido por edificios)",
+            datos["desplazados_estado"], "Personas a reubicar por estado",
             os.path.join(outdir, "alb_desplazados_estado.png"), color=ROJO, fuente=fuente)
-    if datos.get("escenarios"):
-        rutas["escenarios"] = grafico_barras(
-            datos["escenarios"], "Población desplazada: proxy por reportes vs. corregido",
-            os.path.join(outdir, "alb_escenarios.png"), color=AZUL2, fuente=fuente)
+    if datos.get("intervalo"):
+        rutas["intervalo"] = grafico_barras(
+            datos["intervalo"], "Personas a reubicar — intervalo de planificación",
+            os.path.join(outdir, "alb_intervalo.png"), color=AZUL2, fuente=fuente)
     if datos.get("cisternas_estado"):
         rutas["cisternas_estado"] = grafico_barras(
             datos["cisternas_estado"],
@@ -233,11 +233,6 @@ def graficos_albergues(datos: dict, outdir: str = "reports_out",
             datos["composicion"], "Composición de los reportes de daño",
             os.path.join(outdir, "alb_composicion.png"),
             colores=[ROJO, NARANJA, AZUL2, GRIS], fuente=fuente)
-    if datos.get("sesgo_la_guaira"):
-        rutas["sesgo_la_guaira"] = grafico_barras(
-            datos["sesgo_la_guaira"],
-            "Reportes reasignados a La Guaira (estado declarado de origen)",
-            os.path.join(outdir, "alb_sesgo.png"), color=AZUL, fuente=fuente)
     return rutas
 
 

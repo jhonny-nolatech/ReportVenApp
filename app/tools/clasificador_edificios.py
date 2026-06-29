@@ -24,6 +24,8 @@ from __future__ import annotations
 import json
 import os
 import re
+import unicodedata
+from functools import lru_cache
 
 from app.config import Settings
 from app.db.mongo import build_event_query, get_reports_collection
@@ -44,10 +46,12 @@ _SYSTEM = (
     "Responde EXCLUSIVAMENTE con un array JSON, un objeto por reporte, sin texto extra.\n"
     "Cada objeto: {\"i\": <indice>, \"tipo\": \"derrumbado|riesgo|vivienda|otro\", "
     "\"vertical\": true|false, \"estado_real\": \"<estado venezolano>\"|null}.\n"
-    "Definiciones:\n"
-    "- tipo 'derrumbado': la edificación COLAPSÓ/se derrumbó/quedó destruida (ya ocurrió).\n"
-    "- tipo 'riesgo': edificación EN RIESGO de colapso (agrietada, ladeada, paredes a punto "
-    "de caer, evacuada por peligro) pero que AÚN NO colapsó.\n"
+    "Definiciones (sé ESTRICTO con 'derrumbado'):\n"
+    "- tipo 'derrumbado': SOLO si la EDIFICACIÓN COLAPSÓ POR COMPLETO / quedó en el suelo / es "
+    "PÉRDIDA TOTAL / quedó INHABITABLE por colapso estructural. NO uses 'derrumbado' si solo "
+    "cayó UNA pared, hay grietas/fisuras, está ladeada/inclinada, o es daño parcial: eso es 'riesgo'.\n"
+    "- tipo 'riesgo': edificación dañada que SIGUE EN PIE — en riesgo de colapso, agrietada, "
+    "ladeada, con paredes caídas o daño estructural PARCIAL, o evacuada por peligro.\n"
     "- tipo 'vivienda': daño en vivienda unifamiliar (casa/rancho), no edificio.\n"
     "- tipo 'otro': no es daño estructural de edificación (servicios, personas, etc.).\n"
     "- vertical: true si es EDIFICIO/torre/residencias/multifamiliar/varios pisos; false si casa.\n"
@@ -212,16 +216,49 @@ _CAMPO = {
     ("viviendas", "riesgo"): "viviendas_riesgo",
 }
 
+# Dedup por NOMBRE de edificación (muchos vecinos reportan el mismo edificio con
+# coordenadas/direcciones ligeramente distintas; el nombre es la mejor señal).
+_RX_EDIFICIO = re.compile(
+    r"(?:edif(?:icio)?|residencias?|torre|conjunto residencial|urb(?:anizaci[oó]n)?)\s+([a-z0-9 ]+)")
+_RX_CORTE = re.compile(r"\b(piso|apto|apartamento|apartament|nro|n|pb|local|casa|sector|calle|av|avenida)\b")
+
+
+def _norm_txt(a: str) -> str:
+    a = unicodedata.normalize("NFKD", (a or "").lower()).encode("ascii", "ignore").decode()
+    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9 ]", " ", a)).strip()
+
+
+def _edificio_id(addr: str) -> str | None:
+    """Identificador del edificio extraído de la dirección (nombre tras
+    'edificio/residencia/torre…', cortando en piso/apto). None si no se puede."""
+    m = _RX_EDIFICIO.search(_norm_txt(addr))
+    if not m:
+        return None
+    nombre = _RX_CORTE.split(m.group(1))[0].strip()[:25].strip()
+    return nombre if len(nombre) >= 4 else None
+
+
+@lru_cache(maxsize=1)
+def _direcciones() -> dict:
+    """Mapa numero -> dirección (para deduplicar edificios por nombre)."""
+    try:
+        col = get_reports_collection()
+        return {d.get("number"): (d.get("address") or "") for d in col.find(build_event_query())}
+    except Exception:  # noqa: BLE001
+        return {}
+
 
 def agregados(cache: dict | None = None) -> dict:
     """Agrega el caché por estado REAL: edificaciones (VERTICALES) y viviendas
-    (HORIZONTALES) derrumbadas / en riesgo, deduplicando por coordenadas (~11 m)."""
+    (HORIZONTALES) derrumbadas / en riesgo, deduplicando edificaciones DISTINTAS por
+    NOMBRE de edificio (cuando existe en la dirección) o, si no, por coordenadas."""
     cache = cache if cache is not None else _cargar_cache()
+    dirs = _direcciones()
     base = {"edificios_derrumbados": 0, "edificios_riesgo": 0,
             "viviendas_derrumbadas": 0, "viviendas_riesgo": 0}
     por_estado: dict[str, dict] = {}
-    coords_vistas: dict[tuple, set] = {}
-    for rec in cache.values():
+    vistas: dict[tuple, set] = {}
+    for num, rec in cache.items():
         tipo = rec.get("tipo")
         if tipo not in ("derrumbado", "riesgo"):
             continue
@@ -229,14 +266,19 @@ def agregados(cache: dict | None = None) -> dict:
         cat = "edificios" if rec.get("vertical") else "viviendas"
         campo = _CAMPO[(cat, tipo)]
         e = por_estado.setdefault(est, dict(base))
-        lat, lng = rec.get("lat"), rec.get("lng")
-        if lat and lng:
-            key = (est, cat, tipo)
-            s = coords_vistas.setdefault(key, set())
-            c = (round(float(lat), 4), round(float(lng), 4))
-            if c in s:
-                continue  # mismo edificio/vivienda ya contado
-            s.add(c)
+        # Clave de identidad de la edificación: nombre de edificio si existe; si no,
+        # coordenadas redondeadas; si tampoco hay, el propio número (no deduplica).
+        ident = _edificio_id(dirs.get(num, "")) if cat == "edificios" else None
+        if ident:
+            ident = ("nombre", ident)
+        else:
+            lat, lng = rec.get("lat"), rec.get("lng")
+            ident = ("geo", round(float(lat), 4), round(float(lng), 4)) if (lat and lng) else ("num", num)
+        clave = (est, cat, tipo)
+        s = vistas.setdefault(clave, set())
+        if ident in s:
+            continue  # misma edificación ya contada
+        s.add(ident)
         e[campo] += 1
     return por_estado
 
