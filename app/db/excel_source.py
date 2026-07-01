@@ -36,26 +36,26 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 # "Subcategoria"; por eso `extracategory.name` (el "tipo de emergencia" que usa
 # el informe) cae a "Subcategoria" cuando no existe "Categoria extra".
 _COLMAP: dict[str, tuple[str, ...]] = {
-    "_id": ("ID",),
-    "number": ("Codigo", "Numero"),
-    "sentManually": ("Enviado Manualmente",),
-    "assignedTo": ("Asignado a", "Organismo"),
-    "createdAt": ("Fecha de registro", "Fecha/Hora"),
-    "title": ("Titulo",),
-    "category": ("Categoria",),
-    "subcategory.name": ("Subcategoria",),
-    "extracategory.name": ("Categoria extra", "Subcategoria"),
-    "additionalcategory.name": ("Categoria adicional",),
-    "status": ("Estado del reporte", "Estatus"),
-    "description": ("Descripción", "Descripcion"),
-    "displayName": ("Nombre", "Reportante"),
-    "email": ("Email",),
-    "dni": ("Cédula", "Cedula"),   # 'Cédula'/'Cedula' = de la persona afectada (PII)
-    "phone_number": ("Telefono",),
-    "province.name": ("Estado",),
-    "municipality.name": ("Municipio",),
-    "parroquia.name": ("Parroquia",),
-    "address": ("Dirección", "Direccion"),
+    "_id": ("ID", "_id"),
+    "number": ("Codigo", "Numero", "number"),
+    "sentManually": ("Enviado Manualmente", "sent1x10"),
+    "assignedTo": ("Asignado a", "Organismo", "assignedTo.displayName"),
+    "createdAt": ("Fecha de registro", "Fecha/Hora", "createdAt"),
+    "title": ("Titulo", "title"),
+    "category": ("Categoria", "category"),
+    "subcategory.name": ("Subcategoria", "subcategory.name"),
+    "extracategory.name": ("Categoria extra", "extracategory.name", "Subcategoria", "subcategory.name"),
+    "additionalcategory.name": ("Categoria adicional", "additionalcategory.name"),
+    "status": ("Estado del reporte", "Estatus", "status"),
+    "description": ("Descripción", "Descripcion", "description"),
+    "displayName": ("Nombre", "Reportante", "displayName"),
+    "email": ("Email", "email"),
+    "dni": ("Cédula", "Cedula", "dni"),   # PII de la persona afectada
+    "phone_number": ("Telefono", "phone_number"),
+    "province.name": ("Estado", "province.name"),
+    "municipality.name": ("Municipio", "municipality.name"),
+    "parroquia.name": ("Parroquia", "parroquia.name"),
+    "address": ("Dirección", "Direccion", "address"),
 }
 
 
@@ -149,8 +149,10 @@ def _row_to_doc(row: dict) -> dict:
     def clean(val: Any) -> Any:
         if val is None:
             return None
-        sval = str(val).strip()
-        return None if sval == "" or sval.lower() == "nan" else val
+        # Quita caracteres invisibles (word-joiner U+2060, zero-width U+200B-200D,
+        # BOM U+FEFF) que trae el export crudo de Mongo en algunos campos.
+        sval = re.sub("[​‌‍⁠﻿]", "", str(val)).strip()
+        return None if sval == "" or sval.lower() == "nan" else sval
 
     def pick(cols: tuple[str, ...]) -> Any:
         """Primer valor (limpio) de las columnas candidatas presentes en la fila."""
@@ -161,19 +163,26 @@ def _row_to_doc(row: dict) -> dict:
 
     doc: dict = {}
     for path, cols in _COLMAP.items():
-        raw = pick(cols)
         if path == "createdAt":
-            _set_path(doc, path, _parse_dt(raw))
+            col_fecha = next((c for c in cols if c in row), None)
+            d = _parse_dt(clean(row.get(col_fecha)) if col_fecha else None)
+            # El export CRUDO de Mongo (columna 'createdAt') guarda la fecha en UTC;
+            # Venezuela es UTC-4. Se convierte a hora de Caracas para no correr los
+            # reportes de la noche al día siguiente. El export viejo ('Fecha/Hora',
+            # 'Fecha de registro') ya venía en hora local → no se toca.
+            if d is not None and col_fecha == "createdAt":
+                d = d - dt.timedelta(hours=4)
+            _set_path(doc, path, d)
         elif path == "sentManually":
-            _set_path(doc, path, _to_bool(raw))
+            _set_path(doc, path, _to_bool(pick(cols)))
         else:
-            _set_path(doc, path, raw)
+            _set_path(doc, path, pick(cols))
 
-    lat = _to_float(pick(("Latitud",)))
-    lng = _to_float(pick(("Longuitud", "Longitud")))  # 'Longuitud' (typo viejo) / 'Longitud'
+    lat = _to_float(pick(("Latitud", "latitude")))
+    lng = _to_float(pick(("Longuitud", "Longitud", "longitude")))  # incl. typo viejo
     doc["latitude"] = lat
     doc["longitude"] = lng
-    coords = _parse_coords(pick(("Lugar de los hechos",)))
+    coords = _parse_coords(pick(("Lugar de los hechos", "location.coordinates")))
     if coords is None and lat is not None and lng is not None:
         coords = [lng, lat]
     doc["location"] = {"coordinates": coords} if coords else {}

@@ -157,6 +157,16 @@ def clasificar(modelo: str | None = None, batch: int = _BATCH,
 
     reportes = _reportes(limite=limite)
     cache = {} if refrescar else _cargar_cache()
+    # Protección: si el caché no corresponde a este export (p. ej. cambió el formato
+    # del número de reporte), casi nada haría match → se ignora para NO mezclar
+    # clasificaciones de reportes que ya no existen (conteos dobles).
+    if cache and reportes:
+        overlap = sum(1 for r in reportes if r["numero"] in cache) / len(reportes)
+        if overlap < 0.05:
+            if progreso:
+                progreso("⚠️ El caché existente NO corresponde a este export (los números de "
+                         "reporte cambiaron). Se ignora y se reclasifica todo desde cero.")
+            cache = {}
     pendientes = [r for r in reportes if r["numero"] and r["numero"] not in cache]
     if progreso:
         progreso(f"Reportes: {len(reportes)} | ya en caché: {len(reportes) - len(pendientes)} | "
